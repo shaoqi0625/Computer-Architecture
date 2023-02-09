@@ -1,0 +1,66 @@
+#include "cache.h"
+#include<stdio.h>
+
+#define GHB_SIZE 256
+#define IT_SIZE 256
+unsigned int current_index = 0;
+
+#define look_ahead 1    // 预取look_ahead
+#define degree 10       // 度
+
+struct GHB_ENTRY
+{
+    uint64_t cl_addr; // cache_line地址
+    unsigned int num = 256;   // 编号最大255，记256为未使用
+} GHB[GHB_SIZE];
+
+struct IT_ENTRY
+{
+    unsigned int ghb_entry = 256;
+} IT[IT_SIZE];
+
+void CACHE::l2c_prefetcher_initialize() 
+{
+    cout << "CPU " << cpu << " L2C ghb prefetcher" << endl;
+}
+
+uint32_t CACHE::l2c_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, uint8_t type, uint32_t metadata_in)
+{
+
+    int num0=ip%IT_SIZE;
+    GHB[current_index].num=IT[num0].ghb_entry;
+    GHB[current_index].cl_addr=addr>>LOG2_BLOCK_SIZE;
+    IT[num0].ghb_entry=current_index;
+
+    //查找最近3次访问的cache的块号
+    unsigned int most_1st_recent=current_index;
+    unsigned int most_2nd_recent=GHB[most_1st_recent].num;
+    unsigned int most_3rd_recent=GHB[most_2nd_recent].num;
+
+    // 有3次Miss，步长相同，则预取
+    if(most_2nd_recent!=256&&most_3rd_recent!=256)
+    {
+        uint64_t stride1=GHB[most_1st_recent].cl_addr-GHB[most_2nd_recent].cl_addr;
+        uint64_t stride2=GHB[most_2nd_recent].cl_addr-GHB[most_3rd_recent].cl_addr;
+        if(stride1==stride2)
+        {
+            for(int i=look_ahead;i<=look_ahead+degree;i++)
+            {
+                uint64_t addr0=((addr>>LOG2_BLOCK_SIZE)+i*stride1)<<LOG2_BLOCK_SIZE;
+                prefetch_line(ip, addr, addr0, FILL_L2, 0);
+            }
+        }
+    }
+    current_index=(current_index+1)%GHB_SIZE;
+    return metadata_in;
+}
+
+uint32_t CACHE::l2c_prefetcher_cache_fill(uint64_t addr, uint32_t set, uint32_t way, uint8_t prefetch, uint64_t evicted_addr, uint32_t metadata_in)
+{
+    return metadata_in;
+}
+
+void CACHE::l2c_prefetcher_final_stats()
+{
+   cout << "CPU " << cpu << " L2C ghb prefetcherfinal stats" << endl;
+}
